@@ -9,7 +9,7 @@ MCP Server for IDA Pro reverse engineering. Fork of [mrexodia/ida-pro-mcp](https
 This fork adds:
 
 - **`idalib-pool`** — a proxy server that manages a pool of idalib instances for concurrent multi-binary analysis
-- **Unix domain socket** support for idalib server (avoids TCP port conflicts)
+- **Unix domain socket or loopback TCP** backend transport for idalib server instances
 - **`execute_sync` deadlock fix** for headless idalib mode
 - **Bearer token authentication** (`--auth-token` / `IDA_MCP_AUTH_TOKEN`)
 - **stdio / HTTP / SSE transport** for the pool proxy
@@ -37,7 +37,7 @@ MCP Client
 │  routes by session_id      │
 └───┬───────────┬────────────┘
     │           │
-  unix sock   unix sock
+ unix/tcp    unix/tcp
     ▼           ▼
 ┌─────────┐ ┌─────────┐
 │ idalib#0 │ │ idalib#1 │
@@ -68,6 +68,9 @@ idalib-pool --transport http://127.0.0.1:8750
 
 # Multi-instance pool
 idalib-pool --max-instances 3
+
+# Force TCP backend instances, useful on Windows
+idalib-pool --instance-transport tcp --max-instances 3
 
 # With authentication
 idalib-pool --auth-token mysecret
@@ -169,7 +172,7 @@ claude mcp add --transport http --scope user ida-pro-mcp http://<host>:8745/mcp
   "mcpServers": {
     "ida-pro-mcp": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/ida-pro-mcp", "idalib-pool"]
+      "args": ["run", "--directory", "/path/to/ida-pro-mcp", "idalib-pool", "--ida-dir", "C:/path/to/IDA"]
     }
   }
 }

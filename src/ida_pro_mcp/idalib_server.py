@@ -7,6 +7,18 @@ import sys
 from pathlib import Path
 from typing import Annotated, Optional
 
+from ida_pro_mcp.idalib_bootstrap import ensure_idadir
+
+
+def _preparse_ida_dir(argv: list[str]) -> str | None:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--ida-dir", type=str, default=None)
+    args, _unknown = parser.parse_known_args(argv)
+    return args.ida_dir
+
+
+ensure_idadir(_preparse_ida_dir(sys.argv[1:]))
+
 # idapro must go first to initialize idalib
 import idapro
 import ida_loader
@@ -390,6 +402,12 @@ def main():
     )
     parser.add_argument(
         "--port", type=int, default=8745, help="Port to listen on, default: 8745"
+    )
+    parser.add_argument(
+        "--ida-dir",
+        type=str,
+        default=None,
+        help="IDA installation directory. Defaults to IDADIR or Hex-Rays idalib config.",
     )
     parser.add_argument(
         "--isolated-contexts",

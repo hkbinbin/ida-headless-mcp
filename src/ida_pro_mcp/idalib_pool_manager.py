@@ -1,7 +1,8 @@
 """idalib Pool Manager — manages a pool of idalib_server subprocess instances.
 
 Each instance is an independent idalib_server process communicating over a
-Unix domain socket.  The pool enforces a 1-instance-per-session model: every
+local Unix socket or loopback TCP endpoint.  The pool enforces a
+1-instance-per-session model: every
 instance holds at most one active IDB at a time.  When the pool is full a new
 ``open`` evicts the least-recently-used session (which becomes "cold" and can
 be transparently reactivated later).
@@ -30,9 +31,17 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+from ida_pro_mcp.idalib_bootstrap import ensure_idadir
 
 logger = logging.getLogger(__name__)
+
+InstanceTransport = Literal["auto", "unix", "tcp"]
+
+
+def _supports_unix_sockets() -> bool:
+    return hasattr(socket, "AF_UNIX")
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -63,9 +72,22 @@ class SessionInfo:
 @dataclass
 class InstanceInfo:
     index: int
-    socket_path: str
     process: subprocess.Popen
+    log_path: str
+    socket_path: str | None = None
+    host: str | None = None
+    port: int | None = None
     session_id: str | None = None  # None = idle
+
+    @property
+    def transport(self) -> str:
+        return "unix" if self.socket_path is not None else "tcp"
+
+    @property
+    def address(self) -> str:
+        if self.socket_path is not None:
+            return f"unix:{self.socket_path}"
+        return f"http://{self.host}:{self.port}"
 
 
 # ---------------------------------------------------------------------------
@@ -73,39 +95,75 @@ class InstanceInfo:
 # ---------------------------------------------------------------------------
 
 class InstanceManager:
-    """Manages idalib_server subprocesses and communicates over Unix sockets."""
+    """Manages idalib_server subprocesses and forwards HTTP requests."""
 
     def __init__(
         self,
         socket_dir: str,
         idalib_args: list[str] | None = None,
+        instance_transport: InstanceTransport = "auto",
+        backend_host: str = "127.0.0.1",
+        ida_dir: str | None = None,
     ):
         self.socket_dir = socket_dir
         self.idalib_args = idalib_args or []
+        self.instance_transport = self._resolve_instance_transport(instance_transport)
+        self.backend_host = backend_host
+        self.ida_dir = ida_dir
         self.instances: list[InstanceInfo] = []
         self._next_index = 0
 
+    def _resolve_instance_transport(self, transport: InstanceTransport) -> Literal["unix", "tcp"]:
+        if transport not in ("auto", "unix", "tcp"):
+            raise ValueError(f"Unsupported instance transport: {transport}")
+        if transport == "auto":
+            return "unix" if _supports_unix_sockets() else "tcp"
+        if transport == "unix" and not _supports_unix_sockets():
+            raise RuntimeError("Unix domain sockets are not supported on this platform")
+        return transport
+
     def spawn(self) -> InstanceInfo:
         idx = self._next_index
-        sock_path = os.path.join(self.socket_dir, f"{idx}.sock")
         log_path = os.path.join(self.socket_dir, f"{idx}.log")
         cmd = [
             sys.executable, "-m", "ida_pro_mcp.idalib_server",
-            "--unix-socket", sock_path,
-            *self.idalib_args,
         ]
+
+        sock_path: str | None = None
+        host: str | None = None
+        port: int | None = None
+        if self.instance_transport == "unix":
+            sock_path = os.path.join(self.socket_dir, f"{idx}.sock")
+            cmd.extend(["--unix-socket", sock_path])
+        else:
+            host = self.backend_host
+            port = self._find_free_tcp_port(host)
+            cmd.extend(["--host", host, "--port", str(port)])
+
+        if self.ida_dir:
+            cmd.extend(["--ida-dir", self.ida_dir])
+        cmd.extend(self.idalib_args)
+
         logger.info("Spawning instance %d: %s (log: %s)", idx, " ".join(cmd), log_path)
-        log_file = open(log_path, "w")
+        log_file = open(log_path, "w", encoding="utf-8")
+        env = os.environ.copy()
+        resolved_ida_dir = ensure_idadir(self.ida_dir)
+        if resolved_ida_dir:
+            env["IDADIR"] = resolved_ida_dir
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=log_file,
             stderr=subprocess.STDOUT,
+            env=env,
         )
         inst = InstanceInfo(
             index=idx,
-            socket_path=sock_path,
             process=proc,
+            log_path=log_path,
+            socket_path=sock_path,
+            host=host,
+            port=port,
         )
         inst._log_file = log_file  # type: ignore[attr-defined]
         self._next_index += 1
@@ -144,28 +202,53 @@ class InstanceManager:
                 return inst
         return None
 
+    def _find_free_tcp_port(self, host: str) -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((host, 0))
+            return int(sock.getsockname()[1])
+
+    def _read_log_tail(self, inst: InstanceInfo, limit: int = 4000) -> str:
+        try:
+            with open(inst.log_path, "r", encoding="utf-8", errors="replace") as f:
+                data = f.read()
+        except OSError:
+            return ""
+        return data[-limit:]
+
     def _wait_for_ready(self, inst: InstanceInfo, timeout: float = 120) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if inst.process.poll() is not None:
-                raise RuntimeError(
+                message = (
                     f"Instance {inst.index} exited prematurely "
                     f"(code {inst.process.returncode})"
                 )
-            if os.path.exists(inst.socket_path):
-                try:
-                    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                    sock.settimeout(1)
-                    sock.connect(inst.socket_path)
-                    sock.close()
-                    logger.info("Instance %d ready at %s", inst.index, inst.socket_path)
-                    return
-                except (ConnectionRefusedError, OSError):
-                    pass
+                tail = self._read_log_tail(inst)
+                if tail:
+                    message = f"{message}\n--- instance log tail ---\n{tail}"
+                raise RuntimeError(message)
+
+            try:
+                if inst.socket_path is not None:
+                    if os.path.exists(inst.socket_path):
+                        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                        sock.settimeout(1)
+                        sock.connect(inst.socket_path)
+                        sock.close()
+                        logger.info("Instance %d ready at %s", inst.index, inst.address)
+                        return
+                elif inst.host is not None and inst.port is not None:
+                    with socket.create_connection((inst.host, inst.port), timeout=1):
+                        logger.info("Instance %d ready at %s", inst.index, inst.address)
+                        return
+            except (ConnectionRefusedError, OSError):
+                pass
             time.sleep(0.2)
-        raise TimeoutError(
-            f"Instance {inst.index} did not become ready within {timeout}s"
-        )
+        tail = self._read_log_tail(inst)
+        message = f"Instance {inst.index} did not become ready within {timeout}s"
+        if tail:
+            message = f"{message}\n--- instance log tail ---\n{tail}"
+        raise TimeoutError(message)
 
     # --- HTTP forwarding ---
 
@@ -184,10 +267,15 @@ class InstanceManager:
         return sc if sc is not None else result
 
     def forward_raw(self, inst: InstanceInfo, request: dict) -> dict:
-        conn = http.client.HTTPConnection("localhost", timeout=300)
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(inst.socket_path)
-        conn.sock = sock
+        if inst.socket_path is not None:
+            conn = http.client.HTTPConnection("localhost", timeout=300)
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.connect(inst.socket_path)
+            conn.sock = sock
+        else:
+            if inst.host is None or inst.port is None:
+                raise RuntimeError(f"Instance {inst.index} has no TCP endpoint")
+            conn = http.client.HTTPConnection(inst.host, inst.port, timeout=300)
         try:
             body = json.dumps(request)
             conn.request("POST", "/mcp", body, {"Content-Type": "application/json"})
@@ -303,12 +391,21 @@ class PoolManager:
         max_instances: int = 1,
         socket_dir: str | None = None,
         idalib_args: list[str] | None = None,
+        instance_transport: InstanceTransport = "auto",
+        backend_host: str = "127.0.0.1",
+        ida_dir: str | None = None,
     ):
         self.max_instances = max_instances  # 0 = unlimited
         socket_dir = socket_dir or tempfile.mkdtemp(prefix="idalib-pool-")
         os.makedirs(socket_dir, exist_ok=True)
 
-        self.im = InstanceManager(socket_dir, idalib_args)
+        self.im = InstanceManager(
+            socket_dir,
+            idalib_args,
+            instance_transport=instance_transport,
+            backend_host=backend_host,
+            ida_dir=ida_dir,
+        )
         self.sr = SessionRegistry()
         self._lock = threading.Lock()
 

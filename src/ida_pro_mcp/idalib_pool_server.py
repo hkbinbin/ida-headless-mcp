@@ -2,7 +2,7 @@
 
 This process does NOT import ``idapro``.  It speaks MCP over HTTP to clients
 and forwards IDA tool calls to backend idalib_server sub-processes connected
-via Unix domain sockets.
+via local Unix sockets or loopback TCP endpoints.
 
 Usage::
 
@@ -310,7 +310,25 @@ def main():
     )
     parser.add_argument(
         "--socket-dir", type=str, default=None,
-        help="Directory for instance Unix sockets (default: auto temp dir)",
+        help="Directory for instance Unix sockets and logs (default: auto temp dir)",
+    )
+    parser.add_argument(
+        "--instance-transport",
+        choices=("auto", "unix", "tcp"),
+        default="auto",
+        help="Backend instance transport: auto, unix, or tcp (default: auto)",
+    )
+    parser.add_argument(
+        "--backend-host",
+        type=str,
+        default="127.0.0.1",
+        help="Loopback host for TCP backend instances (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--ida-dir",
+        type=str,
+        default=None,
+        help="IDA installation directory for idalib child processes.",
     )
     parser.add_argument(
         "--unsafe", action="store_true",
@@ -340,6 +358,9 @@ def main():
         max_instances=args.max_instances,
         socket_dir=args.socket_dir,
         idalib_args=idalib_args,
+        instance_transport=args.instance_transport,
+        backend_host=args.backend_host,
+        ida_dir=args.ida_dir,
     )
 
     mcp = McpServer("ida-pro-mcp")
@@ -372,16 +393,20 @@ def main():
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
-    transport = args.transport
-    if transport == "stdio":
-        mcp.stdio()
-    else:
-        from urllib.parse import urlparse
-        url = urlparse(transport)
-        if not url.hostname or not url.port:
-            print(f"Error: invalid transport URL: {transport}", file=sys.stderr)
-            sys.exit(1)
-        mcp.serve(host=url.hostname, port=url.port, background=False)
+    try:
+        transport = args.transport
+        if transport == "stdio":
+            mcp.stdio()
+        else:
+            from urllib.parse import urlparse
+            url = urlparse(transport)
+            if not url.hostname or not url.port:
+                print(f"Error: invalid transport URL: {transport}", file=sys.stderr)
+                sys.exit(1)
+            mcp.serve(host=url.hostname, port=url.port, background=False)
+    finally:
+        logger.info("Shutting down pool...")
+        pool.shutdown_all()
 
 
 if __name__ == "__main__":

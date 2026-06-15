@@ -20,6 +20,8 @@ from io import BufferedIOBase
 
 from .jsonrpc import JsonRpcRegistry, JsonRpcError, JsonRpcException, get_current_request_id, register_pending_request, unregister_pending_request, cancel_request
 
+SUPPORTS_UNIX_SOCKETS = hasattr(socket, "AF_UNIX")
+
 class McpToolError(Exception):
     def __init__(self, message: str):
         super().__init__(message)
@@ -65,34 +67,48 @@ class _McpSseConnection:
             self.alive = False
             return False
 
-class _UnixHTTPServerMixin:
-    """Mixin that makes an HTTPServer subclass listen on a Unix domain socket."""
+if SUPPORTS_UNIX_SOCKETS:
+    class _UnixHTTPServerMixin:
+        """Mixin that makes an HTTPServer subclass listen on a Unix domain socket."""
 
-    address_family = socket.AF_UNIX
+        address_family = socket.AF_UNIX
 
-    def server_bind(self):
-        if isinstance(self.server_address, str) and os.path.exists(self.server_address):
-            os.unlink(self.server_address)
-        # Skip HTTPServer.server_bind which unpacks (host, port) — that
-        # crashes for AF_UNIX where getsockname() returns a path string.
-        socketserver.TCPServer.server_bind(self)
-        self.server_name = "localhost"
-        self.server_port = 0
+        def server_bind(self):
+            if isinstance(self.server_address, str) and os.path.exists(self.server_address):
+                os.unlink(self.server_address)
+            # Skip HTTPServer.server_bind which unpacks (host, port); that
+            # crashes for AF_UNIX where getsockname() returns a path string.
+            socketserver.TCPServer.server_bind(self)
+            self.server_name = "localhost"
+            self.server_port = 0
 
-    def server_close(self):
-        super().server_close()
-        if isinstance(self.server_address, str) and os.path.exists(self.server_address):
-            os.unlink(self.server_address)
-
-
-class UnixHTTPServer(_UnixHTTPServerMixin, HTTPServer):
-    """Single-threaded HTTPServer on a Unix domain socket."""
-    pass
+        def server_close(self):
+            super().server_close()
+            if isinstance(self.server_address, str) and os.path.exists(self.server_address):
+                os.unlink(self.server_address)
 
 
-class UnixThreadingHTTPServer(_UnixHTTPServerMixin, ThreadingHTTPServer):
-    """Multi-threaded HTTPServer on a Unix domain socket."""
-    pass
+    class UnixHTTPServer(_UnixHTTPServerMixin, HTTPServer):
+        """Single-threaded HTTPServer on a Unix domain socket."""
+        pass
+
+
+    class UnixThreadingHTTPServer(_UnixHTTPServerMixin, ThreadingHTTPServer):
+        """Multi-threaded HTTPServer on a Unix domain socket."""
+        pass
+else:
+    class UnixHTTPServer(HTTPServer):
+        """Placeholder used on platforms without Unix domain socket support."""
+
+        def __init__(self, *args, **kwargs):
+            raise OSError("Unix domain sockets are not supported on this platform")
+
+
+    class UnixThreadingHTTPServer(ThreadingHTTPServer):
+        """Placeholder used on platforms without Unix domain socket support."""
+
+        def __init__(self, *args, **kwargs):
+            raise OSError("Unix domain sockets are not supported on this platform")
 
 
 class McpHttpRequestHandler(BaseHTTPRequestHandler):
