@@ -464,7 +464,7 @@ class McpServer:
     def prompt(self, func: Callable) -> Callable:
         return self.prompts.method(func)
 
-    def serve(self, host: str = "", port: int = 0, *, unix_socket: str | None = None, background = True, request_handler = McpHttpRequestHandler):
+    def serve(self, host: str = "", port: int = 0, *, unix_socket: str | None = None, background = True, request_handler = McpHttpRequestHandler, threaded: bool | None = None):
         if self._running:
             print("[MCP] Server is already running")
             return
@@ -476,8 +476,11 @@ class McpServer:
             server_address: str | tuple[str, int] = unix_socket
         else:
             # SSE uses a long-lived GET stream plus follow-up POST requests,
-            # so foreground TCP servers still need concurrent request handling.
-            server_cls = ThreadingHTTPServer
+            # so public TCP servers default to concurrent request handling.
+            # Internal idalib pool backends can opt out so IDA APIs run on the
+            # main server thread, matching the Unix socket backend behavior.
+            use_threaded = True if threaded is None else threaded
+            server_cls = ThreadingHTTPServer if use_threaded else HTTPServer
             server_address = (host, port)
 
         self._http_server = server_cls(

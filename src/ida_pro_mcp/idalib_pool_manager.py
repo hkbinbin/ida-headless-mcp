@@ -138,7 +138,7 @@ class InstanceManager:
         else:
             host = self.backend_host
             port = self._find_free_tcp_port(host)
-            cmd.extend(["--host", host, "--port", str(port)])
+            cmd.extend(["--host", host, "--port", str(port), "--single-threaded-http"])
 
         if self.ida_dir:
             cmd.extend(["--ida-dir", self.ida_dir])

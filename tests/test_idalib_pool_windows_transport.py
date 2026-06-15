@@ -90,6 +90,7 @@ class InstanceTransportTests(unittest.TestCase):
                                 self.assertIn("127.0.0.1", cmd)
                                 self.assertIn("--port", cmd)
                                 self.assertIn("49152", cmd)
+                                self.assertIn("--single-threaded-http", cmd)
                                 self.assertNotIn("--unix-socket", cmd)
                             finally:
                                 getattr(inst, "_log_file").close()

@@ -71,6 +71,24 @@ class McpServeTransportTests(unittest.TestCase):
         self.assertTrue(_FakeThreadingHTTPServer.instances[0].activated)
         self.assertTrue(_FakeThreadingHTTPServer.instances[0].served)
 
+    def test_foreground_tcp_server_can_be_single_threaded(self):
+        server = McpServer("ida-pro-mcp")
+        with patch.object(mcp_mod, "ThreadingHTTPServer", _FakeThreadingHTTPServer):
+            with patch.object(mcp_mod, "HTTPServer", _FakeHTTPServer):
+                server.serve(
+                    host="127.0.0.1",
+                    port=27145,
+                    background=False,
+                    threaded=False,
+                    request_handler=McpHttpRequestHandler,
+                )
+
+        self.assertEqual(len(_FakeThreadingHTTPServer.instances), 0)
+        self.assertEqual(len(_FakeHTTPServer.instances), 1)
+        self.assertTrue(_FakeHTTPServer.instances[0].bound)
+        self.assertTrue(_FakeHTTPServer.instances[0].activated)
+        self.assertTrue(_FakeHTTPServer.instances[0].served)
+
 
 class McpProtocolNotificationTests(unittest.TestCase):
     def test_initialized_notification_is_accepted(self):

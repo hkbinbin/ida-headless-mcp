@@ -410,6 +410,14 @@ def main():
         help="IDA installation directory. Defaults to IDADIR or Hex-Rays idalib config.",
     )
     parser.add_argument(
+        "--single-threaded-http",
+        action="store_true",
+        help=(
+            "Serve TCP HTTP requests on the main thread. Used by idalib-pool "
+            "backends because IDA APIs are not safe from request worker threads."
+        ),
+    )
+    parser.add_argument(
         "--isolated-contexts",
         action="store_true",
         help=(
@@ -507,7 +515,12 @@ def main():
     if args.unix_socket:
         MCP_SERVER.serve(unix_socket=args.unix_socket, background=False)
     else:
-        MCP_SERVER.serve(host=args.host, port=args.port, background=False)
+        MCP_SERVER.serve(
+            host=args.host,
+            port=args.port,
+            background=False,
+            threaded=not args.single_threaded_http,
+        )
 
 
 if __name__ == "__main__":
