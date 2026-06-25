@@ -63,6 +63,20 @@ jobs:
             echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
           fi
 
+      # --- Render the release notes body from the template ---
+      # Substitutes the tag (e.g. v2.1.0) and the bare version (e.g. 2.1.0)
+      # into .github/RELEASE_TEMPLATE.md. The auto-generated changelog is then
+      # appended below it by action-gh-release (generate_release_notes: true).
+      - name: Render release notes
+        if: steps.tag.outputs.tag != ''
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${TAG#v}"
+          sed -e "s/__TAG__/${TAG}/g" -e "s/__VERSION__/${VERSION}/g" \
+            .github/RELEASE_TEMPLATE.md > release_body.md
+          echo "----- rendered release body -----"
+          cat release_body.md
+
       # --- Publish a GitHub Release with the built files attached ---
       # Runs for tag pushes, and for manual dispatch only when a tag was given.
       - name: Create / update GitHub Release
@@ -73,6 +87,8 @@ jobs:
           name: ${{ steps.tag.outputs.tag }}
           draft: false
           prerelease: false
+          body_path: release_body.md
+          append_body: true            # keep our notes, append the auto changelog
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
