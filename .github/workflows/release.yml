@@ -1,0 +1,80 @@
+name: release
+
+# Build distributable artifacts (wheel + sdist) and attach them to a GitHub
+# Release. No PyPI / external accounts involved.
+#
+# How to cut a release:
+#   git tag -a v2.0.1 -m "v2.0.1"
+#   git push origin v2.0.1
+# Pushing the tag triggers this workflow, which builds the package and creates
+# (or updates) the matching GitHub Release with the built files attached.
+#
+# You can also trigger it manually from the Actions tab (workflow_dispatch),
+# optionally typing a tag name to attach the artifacts to an existing release.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to attach built artifacts to (e.g. v2.0.1). Leave empty to only build."
+        required: false
+        default: ""
+
+permissions:
+  contents: write  # needed to create the GitHub Release and upload assets
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Build sdist and wheel
+        run: |
+          rm -rf dist
+          uv build
+
+      - name: List built artifacts
+        run: ls -l dist
+
+      - name: Upload artifacts to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+      # --- Resolve the tag this release targets ---
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # --- Publish a GitHub Release with the built files attached ---
+      # Runs for tag pushes, and for manual dispatch only when a tag was given.
+      - name: Create / update GitHub Release
+        if: steps.tag.outputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
