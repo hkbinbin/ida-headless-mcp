@@ -223,7 +223,48 @@ decompile("SSL_connect")  → routes to crypto-01
 
 - [Python](https://www.python.org/downloads/) **3.11+**
 - [IDA Pro](https://hex-rays.com/ida-pro) **8.3+** (9.0+ recommended) with [idalib](https://docs.hex-rays.com/user-guide/idalib) — **IDA Free is not supported**
-- Set `IDADIR` to your IDA installation path
+
+## Configure idalib (point it at your IDA installation)
+
+Headless mode loads IDA's `idalib` native library, so it must know where IDA is
+installed. There are **three ways** to tell it — pick whichever fits; they are
+checked in this priority order:
+
+1. **`--ida-dir` flag** (highest priority) — pass it to `ida-mcp` (or the
+   backend). Good for per-client config:
+   ```sh
+   ida-mcp --ida-dir "C:/Program Files/IDA Professional 9.3"
+   ```
+2. **`IDADIR` environment variable** — set it to your IDA installation directory
+   (the folder that contains `idalib.dll` / `libidalib.so` / `libidalib.dylib`):
+   ```sh
+   # Windows (PowerShell)
+   setx IDADIR "C:\Program Files\IDA Professional 9.3"
+   # Windows (current cmd session only)
+   set IDADIR=C:\Program Files\IDA Professional 9.3
+   # macOS / Linux (bash/zsh)
+   export IDADIR="/Applications/IDA Professional 9.3.app/Contents/MacOS"   # macOS
+   export IDADIR="/opt/ida-9.3"                                            # Linux
+   ```
+3. **idalib activation config** (recommended, set once) — run Hex-Rays'
+   activation script so `import idapro` resolves automatically, no env var
+   needed afterward:
+   ```sh
+   # Run with the SAME Python environment you installed this package into:
+   python "<IDA install dir>/idalib/python/py-activate-idalib.py"
+   ```
+   This writes the IDA install path into
+   `%APPDATA%\Hex-Rays\IDA Pro\ida-config.json` (Windows) or
+   `~/.idapro/ida-config.json` (macOS/Linux), which the tool reads on startup.
+
+Verify it works:
+```sh
+python -c "import idapro; print('idalib OK:', idapro.__file__)"
+```
+
+> The directory must contain the idalib shared library (`idalib.dll` on Windows,
+> `libidalib.so` on Linux, `libidalib.dylib` on macOS). Pointing `IDADIR` at the
+> wrong folder is the most common cause of "failed to load idalib" errors.
 
 ## Installation
 
@@ -295,23 +336,41 @@ claude mcp add --transport http --scope user ida-pro-mcp http://<host>:8745/mcp
 
 ## MCP Client Configuration
 
-**Claude Code / Claude Desktop (stdio, recommended):**
+The recommended MCP server is the thin **`ida-mcp`** (stdio), which exposes only
+`open_session` / `close_session` / `use_help`. See the
+[Thin MCP + CLI](#thin-mcp--cli-recommended) section for the full picture.
+
+**Claude Code / Claude Desktop / Codebuddy (stdio, recommended):**
 ```json
 {
   "mcpServers": {
     "ida-pro-mcp": {
-      "command": "idalib-pool"
+      "command": "ida-mcp"
     }
   }
 }
 ```
 
-**HTTP/SSE mode:**
+**With an explicit IDA directory** (use this if you did NOT set `IDADIR` /
+activate idalib — see [Configure idalib](#configure-idalib-point-it-at-your-ida-installation)):
 ```json
 {
   "mcpServers": {
     "ida-pro-mcp": {
-      "url": "http://127.0.0.1:8750/mcp"
+      "command": "ida-mcp",
+      "args": ["--ida-dir", "C:/Program Files/IDA Professional 9.3"]
+    }
+  }
+}
+```
+
+**If `ida-mcp` is not on PATH** (point at the console script or run the module):
+```json
+{
+  "mcpServers": {
+    "ida-pro-mcp": {
+      "command": "python",
+      "args": ["-m", "ida_pro_mcp.thin_server", "--ida-dir", "C:/Program Files/IDA Professional 9.3"]
     }
   }
 }
@@ -323,11 +382,29 @@ claude mcp add --transport http --scope user ida-pro-mcp http://<host>:8745/mcp
   "mcpServers": {
     "ida-pro-mcp": {
       "command": "uv",
-      "args": ["run", "--directory", "/path/to/ida-pro-mcp", "idalib-pool", "--ida-dir", "C:/path/to/IDA"]
+      "args": ["run", "--directory", "/path/to/ida-headless-mcp", "ida-mcp", "--ida-dir", "C:/Program Files/IDA Professional 9.3"]
     }
   }
 }
 ```
+
+<details>
+<summary>Legacy: exposing all tools directly over MCP (idalib-pool)</summary>
+
+```json
+{
+  "mcpServers": {
+    "ida-pro-mcp": {
+      "command": "idalib-pool",
+      "args": ["--ida-dir", "C:/Program Files/IDA Professional 9.3"]
+    }
+  }
+}
+```
+
+Or HTTP/SSE mode: `{ "url": "http://127.0.0.1:8750/mcp" }` (start
+`idalib-pool --transport http://127.0.0.1:8750` separately).
+</details>
 
 ## Session Management Tools
 

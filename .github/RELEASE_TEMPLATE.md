@@ -10,8 +10,25 @@ idalib backend, so analysis sessions stay warm.
 
 - **Python 3.11+**
 - **IDA Pro 8.3+** (9.0+ recommended) with **idalib** — IDA Free is *not* supported
-- Activate idalib once so `import idapro` works (run `py-activate-idalib.py`
-  from `<IDA>/idalib/python/`, or set `IDADIR` to your IDA install dir)
+
+### Point idalib at your IDA installation
+
+Headless mode loads IDA's native `idalib`, so it must know where IDA lives.
+Pick one (checked in this order):
+
+1. **`--ida-dir` flag** — `ida-mcp --ida-dir "C:/Program Files/IDA Professional 9.3"`
+2. **`IDADIR` env var** — set it to the IDA install dir (the folder containing
+   `idalib.dll` / `libidalib.so` / `libidalib.dylib`):
+   ```sh
+   setx IDADIR "C:\Program Files\IDA Professional 9.3"   # Windows
+   export IDADIR="/opt/ida-9.3"                            # Linux/macOS
+   ```
+3. **Activate once** (recommended) — run with the same Python env you installed into:
+   ```sh
+   python "<IDA install dir>/idalib/python/py-activate-idalib.py"
+   ```
+
+Verify: `python -c "import idapro; print('idalib OK')"`
 
 ## 2. Install
 
