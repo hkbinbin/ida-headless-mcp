@@ -276,14 +276,14 @@ Install the latest release wheel directly from the GitHub Releases page (built
 automatically by CI):
 
 ```sh
-pip install https://github.com/hkbinbin/ida-headless-mcp/releases/latest/download/ida_pro_mcp-2.1.1-py3-none-any.whl
+pip install https://github.com/hkbinbin/ida-headless-mcp/releases/latest/download/ida_pro_mcp-2.1.2-py3-none-any.whl
 ```
 
 Or download the `.whl` / `.tar.gz` asset from the
 [Releases page](https://github.com/hkbinbin/ida-headless-mcp/releases) and install it:
 
 ```sh
-pip install ida_pro_mcp-2.1.1-py3-none-any.whl
+pip install ida_pro_mcp-2.1.2-py3-none-any.whl
 ```
 
 Or from source:

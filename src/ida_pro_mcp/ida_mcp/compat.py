@@ -151,16 +151,29 @@ def inf_is_64bit() -> bool:
 
 
 def get_func_name(func: ida_funcs.func_t) -> str | None:
-    # func_t.get_name() introduced in 8.5
-    if IDA_GE_85:
-        return func.get_name()
+    # func_t.get_name() was advertised for 8.5+, but it is NOT present in every
+    # 8.5+/9.x IDAPython build ('func_t' object has no attribute 'get_name').
+    # Probe for it at runtime and fall back to the always-available
+    # ida_funcs.get_func_name(ea).
+    getter = getattr(func, "get_name", None)
+    if callable(getter):
+        try:
+            return getter()
+        except Exception:
+            pass
     return ida_funcs.get_func_name(func.start_ea)
 
 
 def get_func_prototype(func: ida_funcs.func_t) -> ida_typeinf.tinfo_t | None:
-    # func_t.get_prototype() introduced in 8.5
-    if IDA_GE_85:
-        return func.get_prototype()
+    # func_t.get_prototype() was advertised for 8.5+, but (like get_name) it is
+    # not present in every build. Probe at runtime and fall back to reading the
+    # tinfo at the function start.
+    getter = getattr(func, "get_prototype", None)
+    if callable(getter):
+        try:
+            return getter()
+        except Exception:
+            pass
 
     tif = ida_typeinf.tinfo_t()
     if ida_nalt.get_tinfo(tif, func.start_ea) and tif.is_func():
