@@ -44,6 +44,16 @@ jobs:
           rm -rf dist
           uv build
 
+      # --- Package the top-level skills/ folder as a standalone asset ---
+      # Lets users grab the Agent Skills without cloning the repo.
+      - name: Package skills
+        run: |
+          if [ -d skills ]; then
+            zip -r dist/skills.zip skills
+          else
+            echo "No skills/ directory found, skipping."
+          fi
+
       - name: List built artifacts
         run: ls -l dist
 
@@ -94,3 +104,4 @@ jobs:
           files: |
             dist/*.whl
             dist/*.tar.gz
+            dist/skills.zip
