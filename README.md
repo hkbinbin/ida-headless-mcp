@@ -112,9 +112,9 @@ ida-cli --help
 ida-cli decompile -h
 
 # Run a tool against a session (id comes from open_session)
-ida-cli --session ab12cd34 decompile --address 0x401000
-ida-cli --session ab12cd34 xrefs_to --address 0x401000
-ida-cli --session ab12cd34 rename --renames '[{"address":"0x401000","name":"main"}]'
+ida-cli --session ab12cd34 decompile --addr 0x401000
+ida-cli --session ab12cd34 xrefs_to --addrs 0x401000          # or a JSON array: '["0x401000","0x401abc"]'
+ida-cli --session ab12cd34 rename --batch '{"func":[{"addr":"0x401000","name":"main"}]}'
 
 # Global flags can come before OR after the subcommand
 ida-cli --session ab12cd34 list
@@ -137,10 +137,14 @@ Argument typing is derived from each tool's JSON schema:
 
 - integers/floats/strings map to plain values;
 - booleans become `--flag` / `--no-flag`;
-- arrays/objects accept a **JSON string** (e.g. `--renames '[{...}]'`).
+- arrays/objects accept a **JSON string** (e.g. `--batch '{"func":[{...}]}'`).
 
 Notes:
 
+- **Addresses must be numeric** — pass hex with a `0x` prefix (e.g. `0x401000`)
+  or a plain decimal. Symbol names are *not* accepted by address-taking tools
+  like `xrefs_to` / `decompile`; resolve a name to an address first with
+  `ida-cli lookup_funcs --queries '["main"]'`.
 - Commands on the **same session run serially** (the backend instance is
   single-threaded for IDA-API safety); different sessions can run in parallel.
 - If a result is very large the backend **truncates** it and `ida-cli` prints a
@@ -272,14 +276,14 @@ Install the latest release wheel directly from the GitHub Releases page (built
 automatically by CI):
 
 ```sh
-pip install https://github.com/hkbinbin/ida-headless-mcp/releases/latest/download/ida_pro_mcp-2.1.0-py3-none-any.whl
+pip install https://github.com/hkbinbin/ida-headless-mcp/releases/latest/download/ida_pro_mcp-2.1.1-py3-none-any.whl
 ```
 
 Or download the `.whl` / `.tar.gz` asset from the
 [Releases page](https://github.com/hkbinbin/ida-headless-mcp/releases) and install it:
 
 ```sh
-pip install ida_pro_mcp-2.1.0-py3-none-any.whl
+pip install ida_pro_mcp-2.1.1-py3-none-any.whl
 ```
 
 Or from source:

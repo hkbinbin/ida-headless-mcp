@@ -126,12 +126,28 @@ def _coerce_value(meta: dict, raw: Any) -> Any:
     kind = meta["kind"]
     if kind in ("integer", "number", "boolean"):
         return raw
-    if kind in ("array", "object", "union"):
+    if kind in ("array", "object"):
+        # These genuinely expect a structured value — parse the JSON string.
         if isinstance(raw, str):
             try:
                 return json.loads(raw)
             except json.JSONDecodeError:
                 return raw  # pass through as string
+        return raw
+    if kind == "union":
+        # Union types (e.g. ``list[str] | str``) accept either a JSON container
+        # OR a plain scalar string. Only parse when the value LOOKS like a JSON
+        # container/quoted-literal — otherwise keep it as a string so that
+        # address-like scalars ("4521", "401000") and names ("main") are NOT
+        # silently coerced into int/bool/float.
+        if isinstance(raw, str):
+            stripped = raw.lstrip()
+            if stripped[:1] in ("[", "{", '"'):
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError:
+                    return raw
+            return raw  # plain scalar string — send as-is
         return raw
     return raw  # string
 
